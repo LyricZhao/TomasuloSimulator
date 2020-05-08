@@ -1,0 +1,9 @@
+# CLion things
+cmake-*
+.idea
+
+# So big
+TestCase/Big_test.nel
+
+# macOS
+.DS_Store
