@@ -1,7 +1,6 @@
 #pragma once
 #pragma ide diagnostic ignored "bugprone-branch-clone"
 
-#include "processor.hpp"
 #include "utils.hpp"
 
 #define LD_EXE_CYCLES           3
@@ -12,7 +11,23 @@
 #define DIV_EXE_CYCLES          4
 #define DIV_ZERO_EXE_CYCLES     1
 
-static int counter = 0;
+enum InstructionType {
+    JUMP, LOAD, ADD, SUB, MUL, DIV
+};
+
+static InstructionType getType(char type) {
+    switch (type) {
+        case 'L': return LOAD;
+        case 'J': return JUMP;
+        case 'A': return ADD;
+        case 'S': return SUB;
+        case 'M': return MUL;
+        case 'D': return DIV;
+        default:
+        error("No such instruction type %c", type);
+    }
+    unreachable();
+}
 
 static int getCycles(char type) {
     switch (type) {
@@ -29,45 +44,62 @@ static int getCycles(char type) {
 }
 
 struct Instruction {
-    int id, cycles; bool is_div;
+    // Structural information
+    InstructionType type;
+    int id, cycles;
     int dest, src1, src2, addr;
     int condition, src, offset;
-    FunctionalUnit fu;
 
-    static Instruction createArithmetic(char type, int dest, int src1, int src2) {
+    // Results
+    int issued_cycle, executed_cycle, written_cycle;
+
+    static Instruction createArithmetic(int id, char type, int dest, int src1, int src2) {
         Instruction instruction{};
-        instruction.id = counter ++;
+        instruction.type = getType(type);
+        instruction.id = id;
         instruction.cycles = getCycles(type);
-        instruction.is_div = (type == 'D');
         instruction.dest = dest;
         instruction.src1 = src1;
         instruction.src2 = src2;
-        instruction.fu = (type == 'A' or type == 'S') ? ADD_SUB_UNIT: MUL_DIV_UNIT;
 
         return instruction;
     }
 
-    static Instruction createLoad(int dest, int addr) {
+    static Instruction createLoad(int id, int dest, int addr) {
         Instruction instruction{};
-        instruction.id = counter++;
+        instruction.type = LOAD;
+        instruction.id = id;
         instruction.cycles = LD_EXE_CYCLES;
         instruction.dest = dest;
         instruction.addr = addr;
-        instruction.fu = LOAD_UNIT;
 
         return instruction;
     }
 
-    static Instruction createJump(int condition, int src, int offset) {
+    static Instruction createJump(int id, int condition, int src, int offset) {
         Instruction instruction{};
-        instruction.id = counter ++;
+        instruction.type = JUMP;
+        instruction.id = id;
         instruction.cycles = JUMP_EXE_CYCLES;
         instruction.condition = condition;
         instruction.src = src;
         instruction.offset = offset;
-        // TODO
-        instruction.fu = ADD_SUB_UNIT;
 
         return instruction;
+    }
+
+    void issued(int cycle) {
+        if (not issued_cycle)
+            issued_cycle = cycle;
+    }
+
+    void executed(int cycle) {
+        if (not executed_cycle)
+            executed_cycle = cycle;
+    }
+
+    void written(int cycle) {
+        if (not written_cycle)
+            written_cycle = cycle;
     }
 };

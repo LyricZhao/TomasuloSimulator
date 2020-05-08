@@ -34,8 +34,8 @@ int main() {
         Runner runner(dir + filename);
 
         runner.read();
-        runner.run();
-        runner.writeLogs(logsPath(filename));
+        runner.simulate();
+        runner.write(logsPath(filename));
     }
 
     return 0;
