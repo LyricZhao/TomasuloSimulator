@@ -16,7 +16,7 @@ int main() {
 
     std::string dir = "../TestCase/";
 #ifdef DEBUG
-    std::string filenames[] = {"0.basic.nel"};
+    std::string filenames[] = {"debug.nel"};
 #else
     std::string filenames[] = {"0.basic.nel",
                                "1.basic.nel",

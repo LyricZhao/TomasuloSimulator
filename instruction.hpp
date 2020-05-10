@@ -24,7 +24,7 @@ static InstructionType getType(char type) {
         case 'M': return MUL;
         case 'D': return DIV;
         default:
-        error("No such instruction type %c", type);
+            error("No such instruction type %c", type);
     }
     unreachable();
 }
@@ -55,14 +55,14 @@ struct Instruction {
 
     [[nodiscard]] std::string getName() const {
         switch (type) {
-            ADD: return "ADD";
-            SUB: return "SUB";
-            MUL: return "MUL";
-            DIV: return "DIV";
-            LOAD: return "LOAD";
-            JUMP: return "JUMP";
+            case ADD: return "ADD";
+            case SUB: return "SUB";
+            case MUL: return "MUL";
+            case DIV: return "DIV";
+            case LOAD: return "LOAD";
+            case JUMP: return "JUMP";
             default:
-                error("No such instrution type");
+                error("No such instruction type %d", type);
         }
         unreachable();
     }

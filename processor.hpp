@@ -38,7 +38,6 @@ struct ReservationStation {
 
 struct Register {
     int value;
-    int rs_created_cycle; // During write-back stage, check whether matching (rs will be destroyed at the end of execution)
     ReservationStation *rs; // During the issued to execution
 };
 
@@ -49,7 +48,7 @@ enum TickAction {
 };
 
 struct ToWriteBack {
-    int rs_created_cycle, dest, value;
+    int dest, value;
 };
 
 // In-order issue and out-of-order execution/completion
@@ -72,8 +71,11 @@ class Processor {
     FunctionalUnit mul_div_fu[NUM_MUL_DIV_FU]{};
     FunctionalUnit load_fu[NUM_LOAD_FU]{};
 
-    [[nodiscard]] std::pair<ReservationStation*, int> getRelatedRS(InstructionType type) const {
-        switch (type) {
+    [[nodiscard]] std::pair<ReservationStation*, int> getRelatedRS(Instruction *instruction) const {
+        if (instruction == nullptr)
+            return std::make_pair(nullptr, 0);
+
+        switch (instruction->type) {
             case ADD: case SUB:
                 return to_ptr_with_length(add_sub_rs, NUM_ADD_SUB_RS);
             case MUL: case DIV:
@@ -88,8 +90,10 @@ class Processor {
         unreachable();
     }
 
-    [[nodiscard]] std::pair<FunctionalUnit*, int> getRelatedFU(InstructionType type) const {
-        switch (type) {
+    [[nodiscard]] std::pair<FunctionalUnit*, int> getRelatedFU(Instruction *instruction) const {
+        assert(instruction != nullptr);
+
+        switch (instruction->type) {
             case ADD: case SUB:
                 return to_ptr_with_length(add_sub_fu, NUM_ADD_SUB_FU);
             case MUL: case DIV:
@@ -131,8 +135,8 @@ public:
             printf("  - LOAD_RS[%d]: busy=%d, addr=%d\n", i, load_rs[i].busy, load_rs[i].addr);
         printf("  Register states:\n");
         for (int i = 0; i < NUM_REGISTERS; ++ i) {
-            printf("  - Reg[%d]: value=%d, waiting_rs=%s, check=%d\n",
-                    i, registers[i].value, rs_names[registers[i].rs].c_str(), registers[i].rs_created_cycle);
+            printf("  - Reg[%d]: value=%d, waiting_rs=%s\n",
+                    i, registers[i].value, rs_names[registers[i].rs].c_str());
         }
         printf("\n");
     }
@@ -140,23 +144,23 @@ public:
     TickAction tick(Instruction *instruction) {
         cycle ++;
         bool running = false;
-
-        // Latest registers' value
-        // Just a like CDB (Common Data Bus), collecting result from RS an WB
-        bool registers_updated[NUM_REGISTERS];
-        int latest_registers_values[NUM_REGISTERS];
+        printf("Running cycle %d ...\n", cycle);
 
         // Write back
-        for (auto write_back: to_write_back) {
-            if (registers[write_back.dest].rs_created_cycle == write_back.rs_created_cycle) {
-                registers[write_back.dest].value = write_back.value;
-                registers[write_back.dest].rs_created_cycle = 0;
-            }
-        }
+        printf("Writing back ...\n");
+        for (auto write_back: to_write_back)
+            registers[write_back.dest].value = write_back.value;
         to_write_back.clear();
+
+        // Latest registers' value from just-finished RS
+        // Just a like CDB (Common Data Bus), collecting result from RS an WB
+        std::map<ReservationStation*, int> just_finished_cdb;
+        bool registers_updated[NUM_REGISTERS]{};
+        int latest_registers_values[NUM_REGISTERS];
 
         // RS and FU clean up
         // If a FU finishes, write to register next cycle
+        printf("RS and FU clean up ...\n");
         std::vector<ReservationStation*> to_execute;
         for (auto &rs: join3(add_sub_rs, mul_div_rs, load_rs)) {
             if (rs.busy) {
@@ -166,35 +170,66 @@ public:
                 else {
                     rs.fu->remaining_cycles --;
                     if (rs.fu->remaining_cycles == 0) {
-                        to_write_back.push_back(ToWriteBack{rs.created_cycle, rs.fu->dest, rs.fu->result});
-                        registers[rs.fu->dest].rs = nullptr;
+                        // Register is waiting for me
+                        if (registers[rs.fu->dest].rs == &rs) {
+                            registers[rs.fu->dest].rs = nullptr;
+                            to_write_back.push_back(ToWriteBack{rs.fu->dest, rs.fu->result});
+                            // CDB
+                            registers_updated[rs.fu->dest] = true;
+                            latest_registers_values[rs.fu->dest] = rs.fu->result;
+                        }
                         rs.busy = false;
                         rs.instruction->executed(cycle);
-                        rs.instruction->written(cycle);
+                        rs.instruction->written(cycle + 1);
+                        // CDB
+                        just_finished_cdb[&rs] = rs.fu->result;
                     }
                 }
             }
         }
 
+        // Check finish
+        printf("Checking finish ...\n");
         if ((not running) and instruction == nullptr)
             return SHUTDOWN;
 
         // Issue
         bool stall = true;
-        auto [ptr_rs, num_rs] = getRelatedRS(instruction->type);
+        printf("Issuing ...\n");
+        auto [ptr_rs, num_rs] = getRelatedRS(instruction);
         for (int i = 0; i < num_rs; ++ i) {
             // Current instruction is ready
             if (not ptr_rs[i].busy) {
+                printf("Issuing %s\n", instruction->getName().c_str());
                 stall = false;
                 // Set RS
                 ptr_rs[i].busy = true;
                 ptr_rs[i].fu = nullptr;
                 ptr_rs[i].instruction = instruction;
                 ptr_rs[i].created_cycle = cycle;
-                ptr_rs[i].qj = ptr_rs[i].qk = nullptr;
+                switch (instruction->type) {
+                    case ADD: case SUB: case MUL: case DIV: {
+                        auto set_src = [registers_updated, latest_registers_values] (Register &reg, int &v, ReservationStation* &q, int src) {
+                            if (reg.rs != nullptr)
+                                q = reg.rs, v = 0;
+                            else
+                                q = nullptr, v = registers_updated[src] ? latest_registers_values[src] : reg.value;
+                        };
+                        set_src(registers[instruction->src1], ptr_rs[i].vj, ptr_rs[i].qj, instruction->src1);
+                        set_src(registers[instruction->src2], ptr_rs[i].vk, ptr_rs[i].qk, instruction->src2);
+                        break;
+                    }
+                    case LOAD: {
+                        ptr_rs[i].addr = instruction->addr;
+                        break;
+                    }
+                    case JUMP:
+                        unimplemented();
+                    default:
+                        error("No such instruction type");
+                }
                 // Set dest register
                 registers[instruction->dest].rs = &ptr_rs[i];
-                registers[instruction->dest].rs_created_cycle = cycle;
                 // Issue
                 to_execute.push_back(&ptr_rs[i]);
                 instruction->issued(cycle);
@@ -204,44 +239,26 @@ public:
 
         // Check whether RS ready and execute the instructions
         // Sort the ready ones by instruction id
+        printf("Trying to execute ...\n");
         auto comp = [](ReservationStation* x, ReservationStation* y) -> bool {
             return x->instruction->id < y->instruction->id;
         };
         std::sort(to_execute.begin(), to_execute.end(), comp);
 
+        // Check ready and execute
         for (auto &rs: to_execute) {
-            auto [ptr_fu, num_fu] = getRelatedFU(rs->instruction->type);
+            auto [ptr_fu, num_fu] = getRelatedFU(rs->instruction);
 
-            // Check sources
-            bool ready = false;
-            switch (instruction->type) {
-                case ADD: case SUB: case MUL: case DIV: {
-                    auto set_src = [registers_updated, latest_registers_values]
-                            (Register &reg, int &v, ReservationStation* &q, int src) {
-                        if (q == nullptr) {
-                            if (reg.rs != nullptr)
-                                q = reg.rs;
-                            else
-                                v = registers_updated[src] ? latest_registers_values[src] : reg.value;
-                        }
-                    };
-                    set_src(registers[instruction->src1], rs->vj, rs->qj, instruction->src1);
-                    set_src(registers[instruction->src2], rs->vk, rs->qk, instruction->src2);
-                    ready = (rs->qj != nullptr and rs->qk != nullptr);
-                    break;
-                }
-                case LOAD: {
-                    rs->addr = instruction->addr;
-                    ready = true;
-                    break;
-                }
-                case JUMP:
-                    unimplemented();
-                default:
-                    error("No such instruction type");
-            }
+            // Update sources
+            if (rs->qj != nullptr and just_finished_cdb.count(rs->qj))
+                rs->vj = just_finished_cdb[rs->qj], rs->qj = nullptr;
+            if (rs->qk != nullptr and just_finished_cdb.count(rs->qk))
+                rs->vk = just_finished_cdb[rs->qk], rs->qk = nullptr;
 
-            if (not ready)
+            // Check ready
+            if (rs->instruction->type == JUMP)
+                unimplemented();
+            if (not (rs->instruction->type == LOAD or (rs->qj == nullptr and rs->qk == nullptr)))
                 continue;
 
             // Find a functional unit and execute
@@ -251,17 +268,17 @@ public:
                     rs->fu = &ptr_fu[i];
                     assert(rs->qj == nullptr and rs->qk == nullptr);
                     int remaining_cycles, result;
-                    bool div_error = (rs->vk == 0) or (rs->vj == INT32_MAX and rs->vk == -1);
-                    switch (instruction->type) {
+                    bool div_error = (rs->vk == 0) or (rs->vj == INT32_MIN and rs->vk == -1);
+                    switch (rs->instruction->type) {
                         case ADD:
                             remaining_cycles = ADD_EXE_CYCLES, result = rs->vj + rs->vk; break;
                         case SUB:
                             remaining_cycles = SUB_EXE_CYCLES, result = rs->vj - rs->vk; break;
                         case MUL:
-                            remaining_cycles = MUL_EXE_CYCLES, result = rs->vj + rs->vk; break;
+                            remaining_cycles = MUL_EXE_CYCLES, result = rs->vj * rs->vk; break;
                         case DIV:
                             remaining_cycles = div_error ? DIV_ZERO_EXE_CYCLES: DIV_EXE_CYCLES;
-                            result = div_error ? 0 : rs->vj + rs->vk; break;
+                            result = div_error ? 0 : rs->vj / rs->vk; break;
                         case LOAD:
                             remaining_cycles = LOAD_EXE_CYCLES, result = rs->addr; break;
                         case JUMP:
@@ -272,13 +289,14 @@ public:
 
                     // Set FU
                     ptr_fu[i].remaining_cycles = remaining_cycles;
-                    ptr_fu[i].dest = instruction->dest;
+                    ptr_fu[i].dest = rs->instruction->dest;
                     ptr_fu[i].result = result;
                     break;
                 }
             }
         }
 
+        printf("Done\n");
         return stall ? STALL : PC_INCREASE;
     }
 };

@@ -73,7 +73,7 @@ public:
 
     void write(const std::string& logs_path) {
         printf("Writing logs into %s ...\n", logs_path.c_str());
-        FILE* file = fopen(logs_path.c_str(), "r");
+        FILE* file = fopen(logs_path.c_str(), "w");
 
         for (const auto &instruction: instructions)
             fprintf(file, "%d %d %d\n", instruction.issued_cycle, instruction.executed_cycle, instruction.written_cycle);
