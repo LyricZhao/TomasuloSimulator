@@ -3,7 +3,7 @@
 
 #include "utils.hpp"
 
-#define LD_EXE_CYCLES           3
+#define LOAD_EXE_CYCLES         3
 #define JUMP_EXE_CYCLES         1
 #define ADD_EXE_CYCLES          3
 #define SUB_EXE_CYCLES          3
@@ -31,7 +31,7 @@ static InstructionType getType(char type) {
 
 static int getCycles(char type) {
     switch (type) {
-        case 'L': return LD_EXE_CYCLES;
+        case 'L': return LOAD_EXE_CYCLES;
         case 'J': return JUMP_EXE_CYCLES;
         case 'A': return ADD_EXE_CYCLES;
         case 'S': return SUB_EXE_CYCLES;
@@ -53,6 +53,20 @@ struct Instruction {
     // Results
     int issued_cycle, executed_cycle, written_cycle;
 
+    [[nodiscard]] std::string getName() const {
+        switch (type) {
+            ADD: return "ADD";
+            SUB: return "SUB";
+            MUL: return "MUL";
+            DIV: return "DIV";
+            LOAD: return "LOAD";
+            JUMP: return "JUMP";
+            default:
+                error("No such instrution type");
+        }
+        unreachable();
+    }
+
     static Instruction createArithmetic(int id, char type, int dest, int src1, int src2) {
         Instruction instruction{};
         instruction.type = getType(type);
@@ -69,7 +83,7 @@ struct Instruction {
         Instruction instruction{};
         instruction.type = LOAD;
         instruction.id = id;
-        instruction.cycles = LD_EXE_CYCLES;
+        instruction.cycles = LOAD_EXE_CYCLES;
         instruction.dest = dest;
         instruction.addr = addr;
 
@@ -86,6 +100,10 @@ struct Instruction {
         instruction.offset = offset;
 
         return instruction;
+    }
+
+    [[nodiscard]] bool isArithmetic() const {
+        return type == MUL or type == DIV or type == ADD or type == SUB;
     }
 
     void issued(int cycle) {
