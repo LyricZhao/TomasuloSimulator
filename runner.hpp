@@ -58,17 +58,24 @@ public:
     }
 
     void simulate() {
+        printf("Starting to simulate ...\n");
+        uint64_t time_start = getNanoSeconds();
         Processor processor{};
 
         int id = 0;
         while(true) {
             TickAction action = processor.tick(id < instructions.size() ? &instructions[id] : nullptr);
+            // processor.print();
 
             if (action == SHUTDOWN)
                 break;
             if (action == PC_INCREASE)
                 ++ id;
         }
+        uint64_t time_end = getNanoSeconds();
+
+        processor.verify();
+        printf("Finish with time=%.3lfms\n", (time_end - time_start) / 1e6);
     }
 
     void write(const std::string& logs_path) {
@@ -79,5 +86,6 @@ public:
             fprintf(file, "%d %d %d\n", instruction.issued_cycle, instruction.executed_cycle, instruction.written_cycle);
 
         fclose(file);
+        printf("\n");
     }
 };

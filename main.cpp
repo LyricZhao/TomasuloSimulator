@@ -3,7 +3,7 @@
 #include "runner.hpp"
 #include "utils.hpp"
 
-#define DEBUG
+// #define DEBUG
 
 std::string logsPath(std::string filename) {
     std::string dir = "../Log/";
@@ -16,7 +16,7 @@ int main() {
 
     std::string dir = "../TestCase/";
 #ifdef DEBUG
-    std::string filenames[] = {"debug.nel"};
+    std::string filenames[] = {"0.basic.nel"};
 #else
     std::string filenames[] = {"0.basic.nel",
                                "1.basic.nel",
@@ -24,10 +24,6 @@ int main() {
                                "3.basic.nel",
                                "4.basic.nel",
                                "Big_test.nel",
-                               "Example.nel",
-                               "Fabo.nel",
-                               "Fact.nel",
-                               "Gcd.nel",
                                "Mul.nel"};
 #endif
 

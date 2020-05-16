@@ -46,8 +46,7 @@ static int getCycles(char type) {
 struct Instruction {
     // Structural information
     InstructionType type;
-    int id, cycles;
-    int dest, src1, src2, addr;
+    int id, dest, src1, src2, addr;
     int condition, src, offset;
 
     // Results
@@ -71,7 +70,6 @@ struct Instruction {
         Instruction instruction{};
         instruction.type = getType(type);
         instruction.id = id;
-        instruction.cycles = getCycles(type);
         instruction.dest = dest;
         instruction.src1 = src1;
         instruction.src2 = src2;
@@ -83,7 +81,6 @@ struct Instruction {
         Instruction instruction{};
         instruction.type = LOAD;
         instruction.id = id;
-        instruction.cycles = LOAD_EXE_CYCLES;
         instruction.dest = dest;
         instruction.addr = addr;
 
@@ -94,7 +91,6 @@ struct Instruction {
         Instruction instruction{};
         instruction.type = JUMP;
         instruction.id = id;
-        instruction.cycles = JUMP_EXE_CYCLES;
         instruction.condition = condition;
         instruction.src = src;
         instruction.offset = offset;
