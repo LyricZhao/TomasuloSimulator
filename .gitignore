@@ -7,3 +7,9 @@ TestCase/Big_test.nel
 
 # macOS
 .DS_Store
+
+# Slides
+Slides
+
+# Log
+Log/*
