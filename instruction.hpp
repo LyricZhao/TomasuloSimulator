@@ -50,7 +50,7 @@ struct Instruction {
     int condition, src, offset;
 
     // Results
-    int issued_cycle, executed_cycle, written_cycle;
+    int issued_cycle = -1, executed_cycle = -1, written_cycle = -1;
 
     [[nodiscard]] std::string getName() const {
         switch (type) {
@@ -99,17 +99,17 @@ struct Instruction {
     }
 
     void issued(int cycle) {
-        if (not issued_cycle)
+        if (issued_cycle == -1)
             issued_cycle = cycle;
     }
 
     void executed(int cycle) {
-        if (not executed_cycle)
+        if (executed_cycle == -1)
             executed_cycle = cycle;
     }
 
     void written(int cycle) {
-        if (not written_cycle)
+        if (written_cycle == -1)
             written_cycle = cycle;
     }
 };
