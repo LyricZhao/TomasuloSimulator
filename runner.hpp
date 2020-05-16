@@ -7,6 +7,7 @@
 
 #include "instruction.hpp"
 #include "processor.hpp"
+#include "verifier.hpp"
 #include "utils.hpp"
 
 #define BUFFER_SIZE 256
@@ -64,18 +65,33 @@ public:
 
         int id = 0;
         while(true) {
-            TickAction action = processor.tick(id < instructions.size() ? &instructions[id] : nullptr);
+            assert(id >= 0 and (not id > instructions.size()));
+            int next = processor.tick(id < instructions.size() ? &instructions[id] : nullptr);
             // processor.print();
 
-            if (action == SHUTDOWN)
+            if (next == INT_MAX)
                 break;
-            if (action == PC_INCREASE)
-                ++ id;
+            id += next;
         }
         uint64_t time_end = getNanoSeconds();
 
-        processor.verify();
-        printf("Finish with time=%.3lfms\n", (time_end - time_start) / 1e6);
+        Verifier verifier{};
+        id = 0;
+        while (true) {
+            int next = verifier.step(&instructions[id]);
+            id += next;
+            assert(id >= 0 and (not id > instructions.size()));
+            if (id == instructions.size())
+                break;
+        }
+
+        for (int i = 0; i < 32; ++ i) {
+            int expect = verifier.getReg(i), got = processor.getReg(i);
+            if (expect != got) {
+                error("Verification failed at register[%d], expect %d, got %d", i, expect, got);
+            }
+        }
+        printf("Finish and pass verification with time=%.3lfms\n", (time_end - time_start) / 1e6);
     }
 
     void write(const std::string& logs_path) {

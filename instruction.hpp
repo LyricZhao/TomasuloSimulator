@@ -98,10 +98,6 @@ struct Instruction {
         return instruction;
     }
 
-    [[nodiscard]] bool isArithmetic() const {
-        return type == MUL or type == DIV or type == ADD or type == SUB;
-    }
-
     void issued(int cycle) {
         if (not issued_cycle)
             issued_cycle = cycle;

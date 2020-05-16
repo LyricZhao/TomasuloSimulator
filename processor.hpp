@@ -55,12 +55,6 @@ struct Register {
     ReservationStation *rs; // During the issued to execution
 };
 
-enum TickAction {
-    STALL,
-    PC_INCREASE,
-    SHUTDOWN
-};
-
 struct ToWriteBack {
     int dest, value;
 };
@@ -68,15 +62,13 @@ struct ToWriteBack {
 // In-order issue and out-of-order execution/completion
 class Processor {
     int cycle{};
+    bool jumping{};
 
     // Writing registers in current cycle
     std::vector<ToWriteBack> to_write_back;
 
     // Only after the write-back stage, the registers will be updated
     Register registers[NUM_REGISTERS]{};
-
-    // Verify results
-    int checker[NUM_REGISTERS]{};
 
     std::map<ReservationStation*, std::string> rs_names;
 
@@ -93,7 +85,7 @@ class Processor {
             return std::make_pair(nullptr, 0);
 
         switch (instruction->type) {
-            case ADD: case SUB:
+            case ADD: case SUB: case JUMP:
                 return to_ptr_with_length(add_sub_rs, NUM_ADD_SUB_RS);
             case MUL: case DIV:
                 return to_ptr_with_length(mul_div_rs, NUM_MUL_DIV_RS);
@@ -109,7 +101,7 @@ class Processor {
         assert(instruction != nullptr);
 
         switch (instruction->type) {
-            case ADD: case SUB:
+            case ADD: case SUB: case JUMP:
                 return to_ptr_with_length(add_sub_fu, NUM_ADD_SUB_FU);
             case MUL: case DIV:
                 return to_ptr_with_length(mul_div_fu, NUM_MUL_DIV_FU);
@@ -133,6 +125,10 @@ public:
             sprintf(buffer, "LOAD_RS[%d]", i), rs_names[&load_rs[i]] = std::string(buffer);
     }
 
+    int getReg(int id) {
+        return registers[id].value;
+    }
+
     void print() {
         printf("Current cycle: %d\n", cycle);
         printf("  RS states:\n");
@@ -144,7 +140,7 @@ public:
             printf("  - MUL_DIV_RS[%d]: busy=%d, op=%s, vj=%d, vk=%d, qj=%s, qk=%s\n",
                    i, mul_div_rs[i].busy, mul_div_rs[i].getInstructionName().c_str(),
                    mul_div_rs[i].getVj(), mul_div_rs[i].getVk(), rs_names[mul_div_rs[i].qj].c_str(), rs_names[mul_div_rs[i].qk].c_str());
-        for (int i = 0; i < NUM_ADD_SUB_RS; ++ i)
+        for (int i = 0; i < NUM_LOAD_RS; ++ i)
             printf("  - LOAD_RS[%d]: busy=%d, addr=%d\n", i, load_rs[i].busy, load_rs[i].addr);
         printf("  Register states:\n");
         for (int i = 0; i < NUM_REGISTERS; ++ i) {
@@ -154,44 +150,7 @@ public:
         printf("\n");
     }
 
-    void do_verify_step(Instruction *instruction) {
-        switch (instruction->type) {
-            case ADD:
-                checker[instruction->dest] = checker[instruction->src1] + checker[instruction->src2];
-                break;
-            case SUB:
-                checker[instruction->dest] = checker[instruction->src1] - checker[instruction->src2];
-                break;
-            case MUL:
-                checker[instruction->dest] = checker[instruction->src1] * checker[instruction->src2];
-                break;
-            case DIV: {
-                bool div_error = (checker[instruction->src2] == 0) or
-                        (checker[instruction->src1] == INT32_MIN and checker[instruction->src2] == -1);
-                checker[instruction->dest] = div_error? 0 : checker[instruction->src1] / checker[instruction->src2];
-                break;
-            }
-            case LOAD:
-                checker[instruction->dest] = instruction->addr;
-                break;
-            default:
-                error("No such instruction type");
-        }
-    }
-
-    void verify() {
-        for (int i = 0; i < NUM_REGISTERS; ++ i) {
-            if (checker[i] != registers[i].value) {
-                error("Verify failed at register %d, correct=%d, actual=%d", i, checker[i], registers[i].value);
-            }
-        }
-    }
-
-    TickAction tick(Instruction *instruction) {
-        // No-jump implementation
-        if (instruction != nullptr and instruction->type == JUMP)
-            error("No jump in processor");
-
+    int tick(Instruction *instruction) {
         cycle ++;
         bool running = false;
         // printf("Running cycle %d ...\n", cycle);
@@ -211,6 +170,8 @@ public:
         // RS and FU clean up
         // If a FU finishes, write to register next cycle
         // printf("RS and FU clean up ...\n");
+        int jump_offset = 0;
+        bool jump_finish = false;
         std::vector<ReservationStation*> to_execute;
         for (auto &rs: join3(add_sub_rs, mul_div_rs, load_rs)) {
             if (rs.busy) {
@@ -220,18 +181,24 @@ public:
                 } else {
                     rs.fu->remaining_cycles --;
                     if (rs.fu->remaining_cycles == 0) {
-                        // Register is waiting for me
-                        if (registers[rs.fu->dest].rs == &rs) {
-                            registers[rs.fu->dest].rs = nullptr;
-                            to_write_back.push_back(ToWriteBack{rs.fu->dest, rs.fu->result});
+                        if (rs.instruction->type == JUMP) {
+                            jump_offset = rs.fu->result ? rs.instruction->offset : 1;
+                            jump_finish = true;
+                            jumping = false;
+                        } else {
+                            // Register is waiting for me
+                            if (registers[rs.fu->dest].rs == &rs) {
+                                registers[rs.fu->dest].rs = nullptr;
+                                to_write_back.push_back(ToWriteBack{rs.fu->dest, rs.fu->result});
+                                // CDB
+                                registers_updated[rs.fu->dest] = true;
+                                latest_registers_values[rs.fu->dest] = rs.fu->result;
+                            }
                             // CDB
-                            registers_updated[rs.fu->dest] = true;
-                            latest_registers_values[rs.fu->dest] = rs.fu->result;
+                            just_finished_cdb[&rs] = rs.fu->result;
                         }
                         rs.instruction->executed(cycle);
                         rs.instruction->written(cycle + 1);
-                        // CDB
-                        just_finished_cdb[&rs] = rs.fu->result;
                         rs.clear_busy();
                     }
                 }
@@ -241,46 +208,54 @@ public:
         // Check finish
         // printf("Checking finish ...\n");
         if ((not running) and instruction == nullptr)
-            return SHUTDOWN;
+            return INT_MAX; // Shutdown
 
         // Issue
         bool stall = true;
         // printf("Issuing ...\n");
-        auto [ptr_rs, num_rs] = getRelatedRS(instruction);
-        for (int i = 0; i < num_rs; ++ i) {
-            // Current instruction is ready
-            if (not ptr_rs[i].busy) {
-                // printf("Issuing %s\n", instruction->getName().c_str());
-                stall = false;
-                // Set RS
-                ptr_rs[i].busy = true;
-                ptr_rs[i].fu = nullptr;
-                ptr_rs[i].instruction = instruction;
-                switch (instruction->type) {
-                    case ADD: case SUB: case MUL: case DIV: {
-                        auto set_src = [registers_updated, latest_registers_values] (Register &reg, int &v, ReservationStation* &q, int src) {
-                            if (reg.rs != nullptr)
-                                q = reg.rs, v = 0;
-                            else
-                                q = nullptr, v = registers_updated[src] ? latest_registers_values[src] : reg.value;
-                        };
-                        set_src(registers[instruction->src1], ptr_rs[i].vj, ptr_rs[i].qj, instruction->src1);
-                        set_src(registers[instruction->src2], ptr_rs[i].vk, ptr_rs[i].qk, instruction->src2);
-                        break;
+        if (not jumping and not jump_finish) {
+            auto [ptr_rs, num_rs] = getRelatedRS(instruction);
+            for (int i = 0; i < num_rs; ++ i) {
+                // Current instruction is ready
+                if (not ptr_rs[i].busy) {
+                    stall = false;
+                    // Set RS
+                    ptr_rs[i].busy = true;
+                    ptr_rs[i].fu = nullptr;
+                    ptr_rs[i].instruction = instruction;
+
+                    auto set_src = [registers_updated, latest_registers_values] (Register &reg, int &v, ReservationStation* &q, int src) {
+                        if (reg.rs != nullptr)
+                            q = reg.rs, v = 0;
+                        else
+                            q = nullptr, v = registers_updated[src] ? latest_registers_values[src] : reg.value;
+                    };
+
+                    switch (instruction->type) {
+                        case ADD: case SUB: case MUL: case DIV:
+                            set_src(registers[instruction->src1], ptr_rs[i].vj, ptr_rs[i].qj, instruction->src1);
+                            set_src(registers[instruction->src2], ptr_rs[i].vk, ptr_rs[i].qk, instruction->src2);
+                            break;
+                        case LOAD:
+                            ptr_rs[i].addr = instruction->addr;
+                            break;
+                        case JUMP:
+                            jumping = true;
+                            stall = true;
+                            set_src(registers[instruction->src], ptr_rs[i].vj, ptr_rs[i].qj, instruction->src);
+                            ptr_rs[i].vk = instruction->condition;
+                            break;
+                        default:
+                            error("No such instruction type");
                     }
-                    case LOAD: {
-                        ptr_rs[i].addr = instruction->addr;
-                        break;
-                    }
-                    default:
-                        error("No such instruction type");
+                    // Set dest register
+                    if (instruction->type != JUMP)
+                        registers[instruction->dest].rs = &ptr_rs[i];
+                    // Issue
+                    to_execute.push_back(&ptr_rs[i]);
+                    instruction->issued(cycle);
+                    break;
                 }
-                // Set dest register
-                registers[instruction->dest].rs = &ptr_rs[i];
-                // Issue
-                to_execute.push_back(&ptr_rs[i]);
-                instruction->issued(cycle);
-                break;
             }
         }
 
@@ -326,6 +301,8 @@ public:
                             result = div_error ? 0 : rs->vj / rs->vk; break;
                         case LOAD:
                             remaining_cycles = LOAD_EXE_CYCLES, result = rs->addr; break;
+                        case JUMP:
+                            remaining_cycles = JUMP_EXE_CYCLES, result = (rs->vj == rs->vk); break;
                         default:
                             error("No such instruction type");
                     }
@@ -339,9 +316,6 @@ public:
             }
         }
 
-        if (not stall and instruction != nullptr)
-            do_verify_step(instruction);
-
-        return stall ? STALL : PC_INCREASE;
+        return jump_finish ? jump_offset : (stall ? 0 : 1);
     }
 };

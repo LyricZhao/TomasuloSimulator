@@ -12,11 +12,11 @@ std::string logsPath(std::string filename) {
 }
 
 int main() {
-    printf("Tomasulo Simulator, 2017011362\n");
+    printf("Tomasulo Simulator, 2017011362\n\n");
 
     std::string dir = "../TestCase/";
 #ifdef DEBUG
-    std::string filenames[] = {"0.basic.nel"};
+    std::string filenames[] = {"Gcd.nel"};
 #else
     std::string filenames[] = {"0.basic.nel",
                                "1.basic.nel",
@@ -24,7 +24,11 @@ int main() {
                                "3.basic.nel",
                                "4.basic.nel",
                                "Big_test.nel",
-                               "Mul.nel"};
+                               "Mul.nel",
+                               "Example.nel",
+                               "Fabo.nel",
+                               "Fact.nel",
+                               "Gcd.nel"};
 #endif
 
     for (const auto& filename: filenames) {
