@@ -65,7 +65,7 @@ public:
 
         int id = 0;
         while(true) {
-            assert(id >= 0 and (not id > instructions.size()));
+            assert(id >= 0 and id <= instructions.size());
             int next = processor.tick(id < instructions.size() ? &instructions[id] : nullptr);
             // processor.print();
 
@@ -80,7 +80,7 @@ public:
         while (true) {
             int next = verifier.step(&instructions[id]);
             id += next;
-            assert(id >= 0 and (not id > instructions.size()));
+            assert(id >= 0 and id <= instructions.size());
             if (id == instructions.size())
                 break;
         }
@@ -91,7 +91,7 @@ public:
                 error("Verification failed at register[%d], expect %d, got %d", i, expect, got);
             }
         }
-        printf("Finish and pass verification with time=%.3lfms\n", (time_end - time_start) / 1e6);
+        printf("Finish and pass verification with time=%.3lfms\n", static_cast<double>(time_end - time_start) / 1e6);
     }
 
     void write(const std::string& logs_path) {
