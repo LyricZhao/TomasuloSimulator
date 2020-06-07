@@ -136,7 +136,7 @@ public:
             printf("  - ADD_SUB_RS[%d]: busy=%d, op=%s, vj=%d, vk=%d, qj=%s, qk=%s\n",
                     i, add_sub_rs[i].busy, add_sub_rs[i].getInstructionName().c_str(),
                     add_sub_rs[i].getVj(), add_sub_rs[i].getVk(), rs_names[add_sub_rs[i].qj].c_str(), rs_names[add_sub_rs[i].qk].c_str());
-        for (int i = 0; i < NUM_ADD_SUB_RS; ++ i)
+        for (int i = 0; i < NUM_MUL_DIV_RS; ++ i)
             printf("  - MUL_DIV_RS[%d]: busy=%d, op=%s, vj=%d, vk=%d, qj=%s, qk=%s\n",
                    i, mul_div_rs[i].busy, mul_div_rs[i].getInstructionName().c_str(),
                    mul_div_rs[i].getVj(), mul_div_rs[i].getVk(), rs_names[mul_div_rs[i].qj].c_str(), rs_names[mul_div_rs[i].qk].c_str());

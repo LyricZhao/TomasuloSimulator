@@ -67,7 +67,7 @@ public:
         while(true) {
             assert(id >= 0 and id <= instructions.size());
             int next = processor.tick(id < instructions.size() ? &instructions[id] : nullptr);
-            // processor.print();
+            processor.print();
 
             if (next == INT_MAX)
                 break;
